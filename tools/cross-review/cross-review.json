@@ -1,0 +1,391 @@
+{
+  "_doc": "Config de la revue croisée (/review-plan, /review-code), lue par cross-review.py. Clé API : variable d'environnement OPENROUTER_API_KEY, jamais ici. Hébergeurs vérifiés sur https://openrouter.ai/api/v1/models/<slug>/endpoints et /api/v1/providers. Ordre des hébergeurs = ordre d'essai (UE d'abord). Pour changer de relecteur tiers : modifier 'modes'. max_tokens couvre raisonnement + réponse (modèle à raisonnement) ; seuls les tokens réellement produits sont facturés, mais OpenRouter réserve max_tokens × prix du modèle au moment de la requête et refuse celle-ci (402) si le crédit ne couvre pas cette réservation, même si l'appel n'aurait consommé que peu de tokens en pratique. Un seul appel par modèle (pas de relance automatique sur budget de raisonnement épuisé, retirée le 2026-09-28 : voir le commentaire au-dessus de process_model_response dans cross-review.py pour la remettre si besoin). deadline_s borne tout le temps de la commande 'review' : timeout de chaque appel, reprise réseau éventuelle, et le garde-fou global qui rend la main même si un appel reste bloqué. Le 'timeout: 600000' de l'appel Bash dans les skills ne coupe pas une commande lancée en arrière-plan (vérifié le 2026-09-28 : commande de 12 s avec timeout 5 s menée à terme) ; deadline_s peut donc dépasser 600 s, à condition que la commande soit lancée par la conversation principale (pas par un sous-agent de premier plan, qui l'arrête en rendant sa réponse). 'reasoning' au niveau d'un modèle (dans 'models') remplace entièrement celui de la racine pour ce modèle, sans fusion (ex. GLM-5.3 n'accepte que effort max/high/low, pas medium) ; le 'reasoning' racine reste la valeur par défaut des modèles sans réglage propre.",
+  "endpoint": "https://openrouter.ai/api/v1/chat/completions",
+  "timeout_s": 870,
+  "deadline_s": 900,
+  "max_input_chars": 200000,
+  "max_tokens": 32000,
+  "temperature": 0.2,
+  "reasoning": {
+    "effort": "medium"
+  },
+  "provider_defaults": {
+    "allow_fallbacks": false,
+    "data_collection": "deny",
+    "zdr": true
+  },
+  "log_path": "~/.claude/cross-review-log.jsonl",
+  "code_review_min_lines": 40,
+  "rappel_autocorrection": {
+    "_doc": "Après 'seuil' revues de code réelles (run_id distincts, mode code, depuis 'depuis', hors projets de test), 'log' affiche une ligne RAPPEL que la skill relaie en tête du rapport. Passer 'actif' à false une fois la décision prise.",
+    "actif": false,
+    "seuil": 20,
+    "depuis": null,
+    "exclure_projets": [],
+    "message": "20 revues de code journalisées : relire le journal et décider des ajustements."
+  },
+  "modes": {
+    "plan": [
+      "z-ai/glm-5.3",
+      "x-ai/grok-4.7"
+    ],
+    "code": [
+      "z-ai/glm-5.3",
+      "z-ai/glm-5.3-flash"
+    ]
+  },
+  "models": {
+    "z-ai/glm-5.3": {
+      "label": "GLM-5.3",
+      "verifie_le": "2026-09-25",
+      "reasoning": {
+        "effort": "high"
+      },
+      "hebergeurs": [
+        {
+          "slug": "inceptron",
+          "name": "Inceptron",
+          "pays": "SE",
+          "ue": true,
+          "note": "datacenter FI (déclaré), fp4"
+        },
+        {
+          "slug": "mistral",
+          "name": "Mistral",
+          "pays": "FR",
+          "ue": null,
+          "note": "siège FR, datacenter non déclaré, nvfp4"
+        },
+        {
+          "slug": "together",
+          "name": "Together",
+          "pays": "US",
+          "ue": false
+        },
+        {
+          "slug": "fireworks",
+          "name": "Fireworks",
+          "pays": "US",
+          "ue": false
+        },
+        {
+          "slug": "deepinfra",
+          "name": "DeepInfra",
+          "pays": "US",
+          "ue": false,
+          "note": "fp4"
+        },
+        {
+          "slug": "baseten",
+          "name": "BaseTen",
+          "pays": "US",
+          "ue": false
+        }
+      ]
+    },
+    "z-ai/glm-5.3-flash": {
+      "label": "GLM-5.3-Flash",
+      "verifie_le": "2026-09-28",
+      "reasoning": {
+        "effort": "high"
+      },
+      "hebergeurs": [
+        {
+          "slug": "inceptron",
+          "name": "Inceptron",
+          "pays": "SE",
+          "ue": true,
+          "note": "datacenter FI (déclaré), fp8, 0,12 / 0,45 $/M au 2026-09 ; second relecteur du mode code ; même famille que GLM-5.3, à pondérer dans les convergences"
+        },
+        {
+          "slug": "together",
+          "name": "Together",
+          "pays": "US",
+          "ue": false,
+          "note": "repli hors UE, 0,15 / 0,50 $/M au 2026-09"
+        },
+        {
+          "slug": "fireworks",
+          "name": "Fireworks",
+          "pays": "US",
+          "ue": false,
+          "note": "repli hors UE, 0,15 / 0,50 $/M au 2026-09"
+        }
+      ]
+    },
+    "openai/gpt-5.1-codex-mini": {
+      "label": "GPT-5.1-Codex-Mini",
+      "verifie_le": "2026-09-28",
+      "reasoning": {
+        "effort": "high"
+      },
+      "hebergeurs": [
+        {
+          "slug": "azure",
+          "name": "Azure",
+          "pays": "US",
+          "ue": false,
+          "note": "seul hébergeur, pas de variante UE ; dans la liste ZDR d'OpenRouter, 0,25 / 2,00 $/M au 2026-09 ; dans aucun mode"
+        }
+      ]
+    },
+    "google/gemini-3.8-flash": {
+      "label": "Gemini 3.8 Flash",
+      "verifie_le": "2026-09-25",
+      "hebergeurs": [
+        {
+          "slug": "google-vertex/global",
+          "name": "Google",
+          "pays": "US",
+          "ue": false,
+          "note": "pas de variante UE sur OpenRouter ; dans aucun mode"
+        },
+        {
+          "slug": "google-ai-studio",
+          "name": "Google AI Studio",
+          "pays": "US",
+          "ue": false
+        }
+      ]
+    },
+    "xiaomi/mimo-v2.6-pro": {
+      "label": "MiMo-V2.6-Pro",
+      "verifie_le": "2026-09-25",
+      "hebergeurs": [
+        {
+          "slug": "deepinfra",
+          "name": "DeepInfra",
+          "pays": "US",
+          "ue": false,
+          "note": "seul hébergeur hors Chine, uptime 94 % au 25/09"
+        }
+      ]
+    },
+    "x-ai/grok-4.3": {
+      "label": "Grok 4.3",
+      "verifie_le": "2026-09-29",
+      "hebergeurs": [
+        {
+          "slug": "xai/zdr",
+          "name": "xAI",
+          "pays": "US",
+          "ue": false,
+          "note": "variante zéro conservation explicite, 1,25 / 2,50 $/M au 2026-09 ; dans aucun mode"
+        },
+        {
+          "slug": "xai",
+          "name": "xAI",
+          "pays": "US",
+          "ue": false,
+          "note": "repli, même prix, aussi dans la liste ZDR"
+        }
+      ]
+    },
+    "x-ai/grok-4.7": {
+      "label": "Grok 4.7",
+      "verifie_le": "2026-09-29",
+      "hebergeurs": [
+        {
+          "slug": "xai/zdr",
+          "name": "xAI",
+          "pays": "US",
+          "ue": false,
+          "note": "variante zéro conservation explicite, 2,00 / 6,00 $/M au 2026-09 ; le raisonnement n'est pas compté dans max_tokens chez xAI ; second relecteur du mode plan"
+        },
+        {
+          "slug": "xai",
+          "name": "xAI",
+          "pays": "US",
+          "ue": false,
+          "note": "repli, même prix, aussi dans la liste ZDR"
+        }
+      ]
+    },
+    "openai/gpt-5.3-codex": {
+      "label": "GPT-5.3-Codex",
+      "verifie_le": "2026-09-25",
+      "hebergeurs": [
+        {
+          "slug": "azure",
+          "name": "Azure",
+          "pays": "US",
+          "ue": false
+        },
+        {
+          "slug": "openai",
+          "name": "OpenAI",
+          "pays": "US",
+          "ue": false
+        }
+      ]
+    },
+    "deepseek/deepseek-v4.1-flash": {
+      "label": "DeepSeek V4.1 Flash",
+      "verifie_le": "2026-09-29",
+      "hebergeurs": [
+        {
+          "slug": "deepinfra",
+          "name": "DeepInfra",
+          "pays": "US",
+          "ue": false,
+          "note": "fp8, liste ZDR, 0,14 / 0,42 $/M au 2026-09 ; aucun hébergeur UE pour ce modèle ; dans aucun mode"
+        },
+        {
+          "slug": "fireworks",
+          "name": "Fireworks",
+          "pays": "US",
+          "ue": false,
+          "note": "liste ZDR, 0,22 / 0,66 $/M"
+        },
+        {
+          "slug": "together",
+          "name": "Together",
+          "pays": "US",
+          "ue": false,
+          "note": "liste ZDR, 0,30 / 1,20 $/M"
+        },
+        {
+          "slug": "baseten",
+          "name": "BaseTen",
+          "pays": "US",
+          "ue": false,
+          "note": "fp8, liste ZDR, 0,30 / 1,20 $/M"
+        }
+      ]
+    },
+    "mistralai/mistral-small-2603": {
+      "label": "Mistral Small 2603",
+      "verifie_le": "2026-09-28",
+      "reasoning": {
+        "effort": "high"
+      },
+      "hebergeurs": [
+        {
+          "slug": "mistral/eu",
+          "name": "Mistral",
+          "pays": "FR",
+          "ue": true,
+          "note": "endpoint UE explicite, dans la liste ZDR d'OpenRouter, 0,17 / 0,66 $/M au 2026-09 ; dans aucun mode"
+        },
+        {
+          "slug": "mistral",
+          "name": "Mistral",
+          "pays": "FR",
+          "ue": null,
+          "note": "repli : siège FR, datacenter non déclaré, 0,15 / 0,60 $/M"
+        }
+      ]
+    },
+    "mistralai/devstral-2512": {
+      "label": "Devstral 2",
+      "verifie_le": "2026-09-25",
+      "hebergeurs": [
+        {
+          "slug": "mistral/eu",
+          "name": "Mistral",
+          "pays": "FR",
+          "ue": true
+        }
+      ]
+    }
+  },
+  "ignore_chine": [
+    "baidu",
+    "deepseek",
+    "tencent",
+    "xiaomi",
+    "streamlake",
+    "nex-agi",
+    "alibaba",
+    "siliconflow",
+    "z-ai",
+    "moonshotai",
+    "minimax",
+    "stepfun"
+  ],
+  "sensitive_globs": [
+    ".env",
+    ".env.*",
+    "*.env",
+    "wp-config.php",
+    "wp-config-*.php",
+    "*.sql",
+    "*.sql.gz",
+    "*.dump",
+    "*.sqlite",
+    "*.sqlite3",
+    "*.db",
+    "*.pem",
+    "*.key",
+    "*.p12",
+    "*.pfx",
+    "*.crt",
+    "id_rsa*",
+    "id_ed25519*",
+    "id_ecdsa*",
+    "*.kdbx",
+    "auth.json",
+    ".htpasswd",
+    ".npmrc",
+    ".pgpass",
+    ".netrc",
+    "*credentials*",
+    "*secret*",
+    "*.log",
+    "*.zip",
+    "*.tar",
+    "*.tar.*",
+    "*.tgz",
+    "*.gz",
+    "*.7z",
+    "*.rar",
+    "wp-content/uploads/**",
+    "node_modules/**",
+    "vendor/**"
+  ],
+  "extra_secret_patterns": [],
+  "veille": {
+    "_doc": "Sous-commande 'watch' (tâche planifiée mensuelle) : compare l'état d'OpenRouter à l'instantané précédent. Familles = expressions régulières sur l'id des modèles.",
+    "snapshot_path": "~/.claude/cross-review-veille.json",
+    "familles": [
+      {
+        "nom": "GLM",
+        "motif": "^z-ai/glm-"
+      },
+      {
+        "nom": "Gemini",
+        "motif": "^google/gemini-"
+      },
+      {
+        "nom": "MiMo",
+        "motif": "^xiaomi/mimo-"
+      },
+      {
+        "nom": "Grok",
+        "motif": "^x-ai/grok-"
+      },
+      {
+        "nom": "GPT / Codex",
+        "motif": "^openai/gpt-"
+      },
+      {
+        "nom": "Mistral",
+        "motif": "^mistralai/(devstral|codestral|mistral-large|mistral-medium|magistral)"
+      },
+      {
+        "nom": "DeepSeek",
+        "motif": "^deepseek/"
+      },
+      {
+        "nom": "Qwen Coder",
+        "motif": "^qwen/qwen.*coder"
+      },
+      {
+        "nom": "Kimi",
+        "motif": "^moonshotai/kimi"
+      }
+    ],
+    "exclure_motif": "(:free$|image|audio|tts|embed|realtime|search|vision-preview)",
+    "variation_prix_pct": 20
+  }
+}
