@@ -2,19 +2,19 @@
 name: review-plan
 description: Revue croisée d'un plan d'implémentation approuvé, avant de l'exécuter. Lance en parallèle un relecteur Claude vierge (fresh-reviewer) et les modèles tiers OpenRouter du mode plan, consolide les constats avec un verdict par constat, écrit le journal, puis attend la décision de l'utilisateur sans rien modifier. À utiliser uniquement juste après l'approbation d'un plan (sortie du plan mode), ou quand l'utilisateur tape /review-plan.
 argument-hint: "[chemin du plan]"
-allowed-tools: Bash(__CLAUDE_HOME__/tools/cross-review/cross-review.py:*), Read, Write, AskUserQuestion
+allowed-tools: Bash(~/.claude/tools/cross-review/cross-review.py:*), Read, Write, AskUserQuestion
 ---
 
 # Revue croisée d'un plan
 
-Script : `__CLAUDE_HOME__/tools/cross-review/cross-review.py`, toujours appelé par ce chemin exact (jamais via `python3`) pour que la règle d'autorisation et l'exclusion du sandbox s'appliquent. Chaque appel est seul dans sa commande Bash : ni `&&`, ni `|`, ni `;`, sinon il tourne dans le sandbox et ne peut ni joindre OpenRouter ni écrire le journal. Il ne sert qu'à relire : les relecteurs rendent des constats, jamais de code.
+Script : `~/.claude/tools/cross-review/cross-review.py`, toujours écrit ainsi (le tilde en tête, jamais développé en chemin absolu, jamais via `python3`) pour que la règle d'autorisation et l'exclusion du sandbox s'appliquent. Chaque appel est seul dans sa commande Bash : ni `&&`, ni `|`, ni `;`, sinon il tourne dans le sandbox et ne peut ni joindre OpenRouter ni écrire le journal. Il ne sert qu'à relire : les relecteurs rendent des constats, jamais de code.
 
 ## 1. Préparer le contenu
 
 Plan à relire : `$ARGUMENTS` s'il est fourni ; sinon le fichier de plan de la session (celui indiqué par le plan mode, dans `~/.claude/plans/`). Si aucun plan n'est identifiable, demander le chemin à l'utilisateur et s'arrêter.
 
 ```
-__CLAUDE_HOME__/tools/cross-review/cross-review.py collect --mode plan --plan <plan>
+~/.claude/tools/cross-review/cross-review.py collect --mode plan --plan <plan>
 ```
 
 Garder du résumé JSON : `run_id`, `run_dir`, `payload`, `projet`, `repo_root`, `claude_md`, `chars`, `secrets_masked`, `over_limit`. Si `over_limit` est vrai (code 5), le dire à l'utilisateur et s'arrêter : on ne tronque pas.
@@ -26,7 +26,7 @@ Garder du résumé JSON : `run_id`, `run_dir`, `payload`, `projet`, `repo_root`,
 - Bash, `run_in_background: true`, `timeout: 600000`, lancé depuis la conversation principale, jamais par un sous-agent. En arrière-plan, ce timeout ne coupe pas la commande : le script s'arrête de lui-même à `deadline_s` de la config (900 s).
 
   ```
-  __CLAUDE_HOME__/tools/cross-review/cross-review.py review --mode plan --input <payload> --run-dir <run_dir>
+  ~/.claude/tools/cross-review/cross-review.py review --mode plan --input <payload> --run-dir <run_dir>
   ```
 
 Attendre les deux notifications sans faire le travail des relecteurs entre-temps.
@@ -58,7 +58,7 @@ Lire `<run_dir>/tiers.md`. Les constats du relecteur Claude prennent le préfixe
 Si Claude n'a rien signalé, une entrée `{"relecteur": "Claude (fresh-reviewer)", "modele": "claude-opus-5-5", "hebergeur": "Anthropic", "finding_id": null, "severite": "aucune", "resume": "rien à signaler", "convergent": false, "verdict": null, "raison": null}`. Le script ajoute lui-même les tiers sans constat ou indisponibles.
 
 ```
-__CLAUDE_HOME__/tools/cross-review/cross-review.py log --run-dir <run_dir> --verdicts <run_dir>/verdicts.json
+~/.claude/tools/cross-review/cross-review.py log --run-dir <run_dir> --verdicts <run_dir>/verdicts.json
 ```
 
 ## 5. Rapport, puis attente
@@ -89,8 +89,8 @@ Puis, dans le même tour, le formulaire de décision avec l'outil AskUserQuestio
 Ne rien modifier et ne rien exécuter du plan avant cette réponse. Ensuite :
 
 ```
-__CLAUDE_HOME__/tools/cross-review/cross-review.py decide --run-id <run_id> --accept
-__CLAUDE_HOME__/tools/cross-review/cross-review.py decide --run-id <run_id> retenu:C1,GL2 rejete:GR1
+~/.claude/tools/cross-review/cross-review.py decide --run-id <run_id> --accept
+~/.claude/tools/cross-review/cross-review.py decide --run-id <run_id> retenu:C1,GL2 rejete:GR1
 ```
 
 (la première pour « Go » et pour des coches identiques à mes verdicts ; la seconde pour des coches différentes, avec tous les identifiants du run ; aucune des deux pour « Rien pour l'instant »), puis, sauf « Rien pour l'instant », amender le plan avec les constats retenus, et seulement alors l'exécuter.

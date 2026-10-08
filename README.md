@@ -4,7 +4,7 @@ Deux skills Claude Code, `/review-plan` et `/review-code`, qui font relire un pl
 
 - un **Claude Opus en contexte vierge** (sous-agent `fresh-reviewer`), qui n'a pas vu la conversation ;
 - **deux modèles tiers via OpenRouter**, choisis par mode, avec une liste blanche fermée d'hébergeurs, zéro conservation des données (`zdr`) et refus des hébergeurs qui entraînent sur les données ;
-- en mode code, les **contrôles automatiques** que le dépôt fournit (`php -l`, PHPCS, PHPStan, ESLint, tests).
+- en mode code, les **contrôles automatiques** que le dépôt fournit (`php -l`, PHPCS, PHPStan, ESLint, `bash -n`, shellcheck s'il est installé) ; les tests du dépôt servent à prouver les constats retenus.
 
 Les relecteurs rendent des constats (sévérité, où, problème, pourquoi), jamais de code. Le Claude principal de la session consolide, marque les constats convergents, propose un verdict par constat, et rien n'est appliqué sans votre décision. Chaque revue est journalisée (relecteur, modèle, hébergeur, constat, verdict, coût), ce qui permet de mesurer dans le temps quels relecteurs valent leur prix.
 
@@ -41,41 +41,34 @@ cp agents/fresh-reviewer.md ~/.claude/agents/
 chmod +x ~/.claude/tools/cross-review/cross-review.py
 ```
 
-### 2. Mettre votre chemin absolu
+### 2. Autoriser le script dans `~/.claude/settings.json`
 
-Les skills et le sous-agent appellent le script par son **chemin absolu** (pas `~`, pas `python3 script`), parce que la règle d'autorisation et l'exclusion du sandbox, à l'étape 3, se font sur ce chemin exact. Les fichiers livrés contiennent le marqueur `__CLAUDE_HOME__` à remplacer par votre dossier `~/.claude` :
-
-```bash
-sed -i '' "s|__CLAUDE_HOME__|$HOME/.claude|g" ~/.claude/skills/review-plan/SKILL.md ~/.claude/skills/review-code/SKILL.md ~/.claude/agents/fresh-reviewer.md
-```
-
-(Sous Linux : `sed -i` sans les guillemets vides.)
-
-### 3. Autoriser le script dans `~/.claude/settings.json`
-
-Deux entrées, avec le même chemin absolu (à la place de `<HOME>`, écrivez votre dossier personnel, par exemple celui que donne `echo $HOME`) :
+Deux entrées :
 
 ```json
 {
   "permissions": {
     "allow": [
-      "Bash(<HOME>/.claude/tools/cross-review/cross-review.py:*)"
+      "Bash(~/.claude/tools/cross-review/cross-review.py:*)"
     ]
   },
   "sandbox": {
     "excludedCommands": [
-      "<HOME>/.claude/tools/cross-review/cross-review.py *"
+      "~/.claude/tools/cross-review/cross-review.py *"
     ]
   }
 }
 ```
 
 - La règle `allow` évite une confirmation à chaque appel.
-- L'exclusion du sandbox est **indispensable** : dans le sandbox, le script ne peut ni joindre OpenRouter ni écrire le journal. C'est aussi pour cela que chaque appel doit être seul dans sa commande Bash, sans `&&`, `|` ni `;` (les skills le rappellent).
+- L'exclusion du sandbox est **indispensable** : dans le sandbox, le script ne peut ni joindre OpenRouter ni écrire le journal.
+- Les skills écrivent le chemin exactement ainsi, le tilde en tête (jamais développé en chemin absolu, jamais via `python3`), et la règle comme l'exclusion se comparent à cette forme écrite. C'est pour cela que chaque appel doit être seul dans sa commande Bash, sans `&&`, `|` ni `;` (les skills le rappellent).
 
-### 4. Créer une clé OpenRouter
+**Mise à jour d'une installation existante** : les versions précédentes du dépôt faisaient écrire le chemin absolu (un marqueur remplacé par `sed` dans les skills et l'agent, et des entrées `settings.json` avec le chemin développé). En mettant à jour, recopiez les skills et l'agent, puis remplacez ces deux entrées de `settings.json` par la forme tilde ci-dessus ; sinon chaque appel demande une confirmation et tourne dans le sandbox, sans accès à OpenRouter ni au journal.
 
-1. Sur https://openrouter.ai, créez une clé d'API et créditez le compte. OpenRouter **réserve** `max_tokens × prix du modèle` au moment de chaque requête et refuse l'appel (erreur 402) si le crédit ne couvre pas cette réservation, même si l'appel n'aurait consommé que peu de tokens : avec `max_tokens` à 32 000 et un modèle à 6 $/M en sortie, prévoyez au moins 0,20 $ de crédit disponible par appel.
+### 3. Créer une clé OpenRouter
+
+1. Sur https://openrouter.ai, créez une clé d'API et créditez le compte. OpenRouter **réserve** `max_tokens × prix du modèle` au moment de chaque requête et refuse l'appel (erreur 402) si le crédit ne couvre pas cette réservation, même si l'appel n'aurait consommé que peu de tokens : avec `max_tokens` à 48 000 et un modèle à 6 $/M en sortie (48 000 × 6 $/M ≈ 0,29 $), prévoyez au moins 0,30 $ de crédit disponible par appel.
 2. Mettez la clé dans la variable d'environnement `OPENROUTER_API_KEY`, dans un fichier lu par les shells non interactifs (`~/.zshenv` sous zsh, pas seulement `~/.zshrc`), puis relancez Claude Code :
 
 ```bash
@@ -84,7 +77,7 @@ echo 'export OPENROUTER_API_KEY="votre-clé"' >> ~/.zshenv
 
 Le script ne lit la clé que dans cette variable, ne l'écrit nulle part et masque toute clé qui traînerait dans le contenu envoyé.
 
-### 5. Choisir vos modèles
+### 4. Choisir vos modèles
 
 Tout se règle dans `~/.claude/tools/cross-review/cross-review.json` :
 
@@ -93,7 +86,7 @@ Tout se règle dans `~/.claude/tools/cross-review/cross-review.json` :
 - `reasoning` à la racine : l'effort par défaut (`medium`). Un `reasoning` dans un modèle remplace entièrement celui de la racine. Deux pièges rencontrés : GLM-5.3 n'accepte que `low`, `high` ou `max` ; chez xAI (Grok) le raisonnement n'est pas compté dans `max_tokens`.
 - `provider_defaults` : `zdr: true` et `data_collection: "deny"` par défaut. À adapter si vous acceptez plus d'hébergeurs.
 - `ignore_chine` : liste d'hébergeurs à exclure quoi qu'il arrive (dans la config livrée, les hébergeurs dont la maison mère est chinoise).
-- `max_tokens`, `temperature`, `timeout_s`, `deadline_s` (durée totale maximale d'une revue, 900 s), `max_input_chars` (au-delà, le contenu est refusé plutôt que tronqué), `code_review_min_lines` (en dessous, `/review-code` propose la revue au lieu de la lancer).
+- `max_tokens`, `temperature`, `timeout_s`, `deadline_s` (durée totale maximale d'une revue, 900 s), `max_input_chars` (au-delà, le contenu est refusé plutôt que tronqué), `code_review_min_lines` (100 ; ne vaut que pour un lot de front de présentation seul : en dessous, `/review-code` propose la revue au lieu de la lancer ; le script ne lit pas cette clé, c'est la skill qui l'applique).
 - `sensitive_globs` et `extra_secret_patterns` : fichiers retirés du diff et motifs de secrets masqués.
 - `log_path` : le journal (`~/.claude/cross-review-log.jsonl` par défaut). Variables `CROSS_REVIEW_CONFIG` et `CROSS_REVIEW_LOG` pour surcharger la config et le journal.
 - `rappel_autocorrection` : après N revues de code, le rapport affiche un rappel de relire le journal. Passez `actif` à `false` si vous n'en voulez pas.
@@ -113,7 +106,7 @@ echo "plan de test" | ~/.claude/tools/cross-review/cross-review.py review --mode
 
 affiche le corps de chaque requête (modèle, hébergeurs, réglages), sans appel réseau.
 
-### 6. Adapter les prompts
+### 5. Adapter les prompts
 
 `prompts/plan.md` et `prompts/code.md` disent aux relecteurs quoi chercher. Ils sont écrits pour du développement web WordPress (PHP, JS, ACF, Gutenberg) : adaptez la liste des priorités à votre stack. `prompts/format.md` impose le format des constats et la réponse `RIEN À SIGNALER` ; le script s'en sert pour lire les réponses, changez-le avec prudence (les tests couvrent l'analyse du format).
 
@@ -121,6 +114,14 @@ affiche le corps de chaque requête (modèle, hébergeurs, réglages), sans appe
 
 - **`/review-plan [chemin]`** : juste après avoir approuvé un plan, avant de l'exécuter. Sans argument, le plan de la session (dossier `~/.claude/plans/`).
 - **`/review-code [--base REF] [--with-files]`** : lot terminé, avant commit ou livraison. Par défaut, tout ce qui n'est pas commité ; `--base main` pour une branche déjà commitée ; `--with-files` ajoute le contenu complet des fichiers touchés.
+
+Quand c'est Claude qui envisage `/review-code` de lui-même (et non vous qui la tapez, auquel cas elle tourne quelle que soit la taille), la skill décide selon le risque du lot :
+
+- le lot touche la prod ou un déploiement, des hooks, scripts d'automatisation ou la config Claude, des secrets ou des permissions, des données (migration, SQL, search-replace), du PHP exécuté côté serveur sur un site client, un formulaire ou un paiement : la revue se lance, quelle que soit la taille (un fichier sensible écarté de l'envoi, comme un `.env`, un `wp-config.php` ou un dump SQL, suffit à classer le lot dans cette catégorie) ;
+- front de présentation seul (CSS, JS d'affichage, gabarits) : elle se lance si le lot atteint `code_review_min_lines` lignes, sinon elle vous la propose en une ligne ;
+- contenu, doc, notes seuls : rien n'est lancé.
+
+Une re-revue après corrections est limitée : au plus une deuxième revue du même lot, et seulement s'il reste des constats importants non prouvés ou si la logique a changé ; sinon les corrections se prouvent par l'exécution. Un très gros lot (au-delà d'environ 1 500 lignes ou 100 000 caractères) se découpe par sous-ensemble cohérent avant la revue : au-delà, les modèles tiers épuisent leur budget de raisonnement sans répondre.
 
 Le rapport liste les constats convergents puis les uniques, avec pour chacun le verdict proposé (retenu, ou rejeté avec la raison, vérifiée dans le code). En mode code, chaque constat bloquant ou important retenu porte une preuve par l'exécution (`[VÉRIFIÉ]`, `[INFIRMÉ]` ou `[NON VÉRIFIÉ]` avec la raison). Un formulaire vous demande ensuite votre décision : suivre les verdicts, cocher constat par constat, ou remettre à plus tard. Rien n'est modifié avant cette réponse, et les corrections ne viennent jamais des relecteurs.
 
